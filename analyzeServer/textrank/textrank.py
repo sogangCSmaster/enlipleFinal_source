@@ -135,16 +135,12 @@ class TextRank:
         taggerIter = self.readTagger()
         # save pos tagging result
         wordFilter = self.taggerTokenizer
-
         for sent in taggerIter:
+            # word filtering
+            sent = list(filter(wordFilter, sent))
+            # english filtering
             sent = list(filter(self.englishFilter, sent))
             for i, word in enumerate(sent):
-
-                # english filtering
-                
-                # filtering
-                if wordFilter and not wordFilter(word):
-                    continue
 
                 self.taggerDictCount[word] = self.taggerDictCount.get(word, 0) + 1
                 self.nTotal += 1
@@ -154,19 +150,17 @@ class TextRank:
                 joined2 = '%s%s' % (sent[i-1][0], word[0])
                 # check similar word (ex: iPhone6, iPhone 6)
                 # inset near pair. then, similar word is removed
-                if i - 1 >= 0 and wordFilter(sent[i-1]) and (wordFilter((joined1, 'NNG')) or wordFilter((joined2, 'NNG'))):
+                if i - 1 >= 0 and wordFilter((joined1, 'NNG')) or wordFilter((joined2, 'NNG')):
                     insertNearPair(sent[i-1], word)
                 if i+1 < len(sent):
                     # news content based bigram
                     joined3 = '%s %s' % (word[0], sent[i+1][0])
                     joined4 = '%s%s' % (word[0], sent[i+1][0])
-                    if wordFilter(sent[i+1]) and (wordFilter((joined3, 'NNG')) or wordFilter((joined4, 'NNG'))):
+                    if wordFilter((joined3, 'NNG')) or wordFilter((joined4, 'NNG')):
                         insertNearPair(word, sent[i+1])
 
                 # construct bigram count
                 for j in range(i+1, min(i + self.window + 1, len(sent))):
-                        if wordFilter and not wordFilter(sent[j]):
-                            continue
                         joined1 = '%s %s' % (word[0], sent[j][0])
                         joined2 = '%s%s' % (word[0], sent[j][0])
                         if sent[j] != word and (wordFilter((joined1, 'NNG')) or wordFilter((joined2, 'NNG'))):
@@ -302,8 +296,8 @@ class TextRank:
             for w in k:
                 used.add(w)
                 
-        unigram = []
-        bigram = []
+        unigrams = []
+        bigrams = []
         avg = 0.0
         for key in both.keys():
             avg += both[key]
@@ -321,9 +315,9 @@ class TextRank:
                 joined1 = '%s %s' % (key[0][0], key[1][0])
                 joined2 = '%s%s' % (key[0][0], key[1][0])
                 if joined1 in self.content and wordFilter((joined1, 'NNG')):
-                    bigram.append((joined1, both[key]))
+                    bigrams.append((joined1, both[key]))
                 elif joined2 in self.content and wordFilter((joined2, 'NNG')):
-                    bigram.append((joined2, both[key]))
+                    bigrams.append((joined2, both[key]))
             else:
                 if self.taggerDictCount[key[0]] <= self.minimum_low_freq:
                     both[key] -= avg * self.low_freq_word_subtraction_multiplier
@@ -332,24 +326,50 @@ class TextRank:
 
                 # 수사가 아니면 단일 단어 추가
                 if key[0][1] != 'SN':
-                    unigram.append(('%s' % (key[0][0]), both[key]))
+                    unigrams.append(('%s' % (key[0][0]), both[key]))
 
-        unigram = list(filter(lambda x: x[1] > 0.0, unigram))[:num]
-        bigram = list(filter(lambda x: x[1] > 0.0, bigram))[:num]
+        unigrams = list(filter(lambda x: x[1] > 0.0, unigrams))[:num]
+        bigrams = list(filter(lambda x: x[1] > 0.0, bigrams))[:num]
 
 
         res = set([])
         ## 공백없는 복합단어를 합친다. ex) 한양대 대나무/숲/향기 -> 한양대 대나무숲향기
-        bigram, ex_words = self.expand_bigram_to_match_context(bigram)
-        unigram = list(filter(lambda x: x[0] not in ex_words, unigram))
+        bigrams, ex_words = self.expand_bigram_to_match_context(bigrams)
+        unigrams = list(filter(lambda x: x[0] not in ex_words, unigrams))
 
-        res = set(unigram + bigram)
+        res = self.merge_expanded_similar_word(bigrams, unigrams)
         res = list(filter(lambda x: x[1] > 0.0, res))
         res = sorted(res, key=lambda x: x[1], reverse=True)[:num]
 
         return res
 
 
+    def merge_expanded_similar_word(self, bigrams, unigrams):
+        # convert to dict
+        # bigram_dict[word] = cost
+        cost_dict = { }
+        for bigram in bigrams:
+            cost_dict[bigram[0]] = bigram[1]
+        for unigram in unigrams:
+            cost_dict[unigram[0]] = unigram[1]
+            
+
+
+        for bigram in bigrams:
+            words = bigram[0].split(' ')
+            if len(words) == 1:
+                continue
+            elif len(words) == 2:
+                nonspace_word = words[0] + words[1]
+                if nonspace_word in cost_dict:
+                    cost_dict[bigram[0]] += cost_dict[nonspace_word]
+                    cost_dict.pop(nonspace_word, None)
+
+        res = []
+        for key in cost_dict.keys():
+            res.append((key, cost_dict[key]))
+
+        return res
 
     ## 본문에 나온 형태로 띄어쓰기 없는 명사단어를 붙여주는 함수
     def expand_bigram_to_match_context(self, n_gram):
@@ -364,8 +384,8 @@ class TextRank:
             left = position - 1
             right = position + len(words[0])
 
-            while left >=0 and self.content[left] != ' ': left -= 1
-            while right < len(self.content) and self.content[right] != ' ': right += 1
+            while left >=0 and self.boundaryChecker(self.content[left]): left -= 1
+            while right < len(self.content) and self.boundaryChecker(self.content[right]): right += 1
 
             morph = self.content[left: right+1]
             poses = self.tagger.pos(morph)
@@ -491,6 +511,9 @@ class TextRank:
 
         # only extract keyword NNG, NNP (일반 명사, 고유 명사, 외국어, 숫자, 한자 제외), 영어일 경우 영어 명사 사전에 등록된 단어인지 검색
         self.nounChecker = lambda x: x in ('NNG', 'NNP', 'SL')
+        # 숫자, 영어, 한글이면 일단 단어 경계에서 제외 (단어를 확장할때 쓴다)
+        self.boundaryChecker = lambda x: re.compile('[a-zA-Z0-9가-힣]+').match(x)
+
         self.taggerTokenizer = lambda x: x[0] not in self.stopwords and self.nounChecker(x[1]) and (len(x[0]) > 1 or x[0] in self.singlewords) and re.compile('[一-龥]+').match(x[0]) is None
 
         self.englishFilter = lambda x: x[1] != 'SL' or nltk.pos_tag([x[0]])[0][1][0] == 'N'
