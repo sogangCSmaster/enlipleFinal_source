@@ -32,7 +32,118 @@ logging.basicConfig(
 )
 
 
+ 
+if __name__ == '__main__':
+    daemon_func()
 
+
+
+def daemon_func():
+
+    # declare global variable
+    global state
+    global p1
+    global p2
+    global global_stopwords
+    global global_singlewords
+
+    with open(cwd + '/config/stopword.txt') as f:
+        global_stopwords = set(map(lambda x: x.strip(), f.readlines()))
+    with open(cwd + '/config/singleword.txt') as f:
+        global_singlewords = set(map(lambda x: x.strip(), f.readlines()))
+
+
+    # killing signal handler
+    signal.signal(signal.SIGTERM, signal_term_handler)
+    config = load_config()['socketio']
+    # Multiprocessing Value for shared variable (0: alive, 1: killed)
+    state = Value('i', 0)
+    try:
+        # fork socket server
+        p1 = Process(target=server.web_start, args=(state,config['batch']['port']))
+        # fork batch server
+        p2 = Process(target=main, args=(state,config['batch']))
+        p1.start()
+        p2.start()
+
+        # check p1 and p2 process is alive
+        while p1.is_alive() and p2.is_alive():
+            pass
+            time.sleep(0.1)
+        raise
+    except Exception as e:
+        # terminate process because daemon process restart the killed process
+        if p1 and p1.is_alive():
+            p1.terminate()
+        if p2 and p2.is_alive():
+            p2.terminate()
+        # kill process
+        sys.exit(-1)
+
+
+# state.value(0: alive, 1: error occur)
+def main(state, batch):
+    # initialize variables
+
+    try:
+        # create database object
+        redis = Redis()
+        db = DB()
+        mongo = Mongo()
+        tagger = Mecab()
+
+        # start batch process
+        while (True):
+            db.ping()
+            redis.ping()
+
+            if load_config()['redis']['password']:
+                redis.sync_stopwords(db.get_stopwords())
+                db.commit()
+
+            # get server count, current server order of all server list
+            mod, remainder = get_mod_from_server_list(batch, state)
+            
+            # error!!! mod cannot be zero
+            if mod == 0:
+                logging.debug('MOD must be larger than 0. Please check your serverlist of `config/config.json`')
+                raise
+            
+            # check another process is killed
+            if state.value == 1:
+                break
+
+            # get MOD * 1000 data, and filter
+            data = list(map(lambda x: x[1:], list(filter(lambda x: int(x[0], 16) %  mod == remainder, mongo.get_recent_context_data(1000 * mod)))))
+            logging.debug("data fetched - size: %d" % (len(data)))
+
+            # wait for empty clause
+            if len(data) == 0:
+                time.sleep(1)
+            else:
+            # start batch process
+                process_start(db, mongo, redis, tagger, data)
+
+    except Exception as e:
+        logging.debug(e)
+        state.value = 1
+
+
+def signal_term_handler(signal, frame):
+    global state
+    global p1
+    global p2
+
+    # set process is killed
+    state.value = 1
+    if p1 and p1.is_alive():
+        p1.terminate()
+
+    if p2 and p2.is_alive():
+        p2.terminate()
+
+    # kill process
+    sys.exit(-1)
 
 def check_socket(host, port):
     # server check
@@ -247,111 +358,3 @@ def get_mod_from_server_list(batch, state):
     return server_count, my_server_idx
 
 
-# state.value(0: alive, 1: error occur)
-def main(state, batch):
-    # initialize variables
-
-    try:
-        # create database object
-        redis = Redis()
-        db = DB()
-        mongo = Mongo()
-        tagger = Mecab()
-
-        # start batch process
-        while (True):
-            db.ping()
-            redis.ping()
-
-            if load_config()['redis']['password']:
-                redis.sync_stopwords(db.get_stopwords())
-                db.commit()
-
-            # get server count, current server order of all server list
-            mod, remainder = get_mod_from_server_list(batch, state)
-            
-            # error!!! mod cannot be zero
-            if mod == 0:
-                logging.debug('MOD must be larger than 0. Please check your serverlist of `config/config.json`')
-                raise
-            
-            # check another process is killed
-            if state.value == 1:
-                break
-
-            # get MOD * 1000 data, and filter
-            data = list(map(lambda x: x[1:], list(filter(lambda x: int(x[0], 16) %  mod == remainder, mongo.get_recent_context_data(1000 * mod)))))
-            logging.debug("data fetched - size: %d" % (len(data)))
-
-            # wait for empty clause
-            if len(data) == 0:
-                time.sleep(1)
-            else:
-            # start batch process
-                process_start(db, mongo, redis, tagger, data)
-
-    except Exception as e:
-        logging.debug(e)
-        state.value = 1
-
-
-def signal_term_handler(signal, frame):
-    global state
-    global p1
-    global p2
-
-    # set process is killed
-    state.value = 1
-    if p1 and p1.is_alive():
-        p1.terminate()
-
-    if p2 and p2.is_alive():
-        p2.terminate()
-
-    # kill process
-    sys.exit(-1)
-
-def daemon_func():
-
-    # declare global variable
-    global state
-    global p1
-    global p2
-    global global_stopwords
-    global global_singlewords
-
-    with open(cwd + '/config/stopword.txt') as f:
-        global_stopwords = set(map(lambda x: x.strip(), f.readlines()))
-    with open(cwd + '/config/singleword.txt') as f:
-        global_singlewords = set(map(lambda x: x.strip(), f.readlines()))
-
-
-    # killing signal handler
-    signal.signal(signal.SIGTERM, signal_term_handler)
-    config = load_config()['socketio']
-    # Multiprocessing Value for shared variable (0: alive, 1: killed)
-    state = Value('i', 0)
-    try:
-        # fork socket server
-        p1 = Process(target=server.web_start, args=(state,config['batch']['port']))
-        # fork batch server
-        p2 = Process(target=main, args=(state,config['batch']))
-        p1.start()
-        p2.start()
-
-        # check p1 and p2 process is alive
-        while p1.is_alive() and p2.is_alive():
-            pass
-            time.sleep(0.1)
-        raise
-    except Exception as e:
-        # terminate process because daemon process restart the killed process
-        if p1 and p1.is_alive():
-            p1.terminate()
-        if p2 and p2.is_alive():
-            p2.terminate()
-        # kill process
-        sys.exit(-1)
- 
-if __name__ == '__main__':
-    daemon_func()
