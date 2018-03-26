@@ -55,7 +55,7 @@ def get_stopwords(redis, root_domain):
 
 def ml_classifications(db, mongo, data, x_test, classification_models, bulk_op):
     start_time = time.time()
-    print("ml_classification start time : ", start_time)
+    logging.debug('ml classification start time : %f' %(start_time))
     # initialize variable
     classifications = { }
 
@@ -92,14 +92,14 @@ def ml_classifications(db, mongo, data, x_test, classification_models, bulk_op):
 
     mongo.bulk_insert_ml_classifications(bulk_op, classifications)
     end_time = time.time()
-    print("ml classification end time : ", end_time)
-    print("total execution time : ", end_time - start_time)
+    logging.debug("ml classification end time : %f" %(end_time))
+    logging.debug("total execution time : %f" %(end_time - start_time))
 
 
 # 키워드를 추출하고 mongo에 bulk insert하는 함수
 def keyword(mongo, redis, tagger, data, bulk_op):
     start_time = time.time()
-    print("keyword extraction start time : ", start_time)
+    logging.debug("keyword extraction start time : %f" %(start_time))
     for idx, (URI, title, content, root_domain, wordcount) in enumerate(data):
         # get stopwords from redis
         stopwords = get_stopwords(redis, root_domain)
@@ -117,13 +117,13 @@ def keyword(mongo, redis, tagger, data, bulk_op):
         keywords = tr.keywords(num=15)
         mongo.bulk_insert_keywords(bulk_op, URI, keywords)
     end_time = time.time()
-    print("keyword extraction end time : ", end_time)
-    print("total execution time : ", end_time - start_time)
+    logging.debug("keyword extraction end time : %f" %(end_time))
+    logging.debug("total execution time : %f" %(end_time - start_time))
 
 # 문장을 추출하고 mongo에 bulk insert하는 함수
 def sentence(mongo, redis, tagger, data, bulk_op):
     start_time = time.time()
-    print("sentence process start time : ", start_time)
+    logging.debug("sentence process start time : %f" %(start_time))
     # get keywords, sentences using textrank algorithm
     for idx, (URI, title, content, root_domain, wordcount) in enumerate(data):
         # get stopwords from redis
@@ -153,8 +153,8 @@ def sentence(mongo, redis, tagger, data, bulk_op):
         sentences = tr.sentences(summarize_rate)
         mongo.bulk_insert_sentences(bulk_op, URI, sentences, summarize_rate)
     end_time = time.time()
-    print("sentence process end time : ", end_time)
-    print("total execute time : ", end_time - start_time)
+    logging.debug("sentence process end time : %f" %(end_time))
+    logging.debug("total execute time : %f" %(end_time - start_time))
 
 
 # 프로세스를 시작하는 함수
@@ -191,24 +191,24 @@ def process_start(db, mongo, redis, tagger, data):
             mongo.bulk_update_metadata(bulk_op, URI, wordcount)
             URIs.append(URI)
         st_time = time.time()
-        print("mongo bulk_op start time : ", st_time)
+        logging.debug("mongo bulk_op start time : %f" %(st_time))
         mongo.execute_bulk_op(bulk_op)
         en_time = time.time()
-        print("mongo bulk_op start time : ", en_time)
-        print("total execution time : ",en_time - st_time)
+        logging.debug("mongo bulk_op start time : %f" %(en_time))
+        logging.debug("total execution time : %f" %(en_time - st_time))
 
         
         crawling_bulk_op = mongo.create_crawling_bulk_op()
         mongo.bulk_update_read_check(crawling_bulk_op, URIs)
         stt_time = time.time()
-        print("mongo.execute_bulk_op time : ", stt_time)
+        logging.debug("mongo.execute_bulk_op time : %f" %(stt_time))
         mongo.execute_bulk_op(crawling_bulk_op)
         endd_time = time.time()
-        print("mongo.execute_bulk_op end time : ", endd_time)
-        print("execution time :", endd_time - stt_time)
+        logging.debug("mongo.execute_bulk_op end time : %f" %(endd_time))
+        logging.debug("execution time : %f" %(endd_time - stt_time))
         logging.debug("Process end")
         elapsed_time = time.time() - start_time
-        logging.debug("Elapsed time : %s" % (elapsed_time))
+        logging.debug("Elapsed time : %f" % (elapsed_time))
     except Exception as e:
         logging.debug(traceback.format_exc())
         raise e
