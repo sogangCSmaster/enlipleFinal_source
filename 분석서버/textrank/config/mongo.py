@@ -10,7 +10,7 @@ class Mongo():
     def __init__(self):
         mongo = load_config()['mongo']
         try:
-            client = pymongo.MongoClient(mongo['host'], mongo['port'])
+            client = pymongo.MongoClient(mongo['host'], mongo['port'], w=0)
             self.db = client[mongo['database']]
         except (pymongo.errors.ConnectionFailure, e):
             raise e
