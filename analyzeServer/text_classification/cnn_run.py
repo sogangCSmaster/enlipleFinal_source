@@ -79,7 +79,7 @@ def preprocess(text):
 
     return text
 
-def clean_str(s):
+def clean_str(s, tagger):
     """Clean sentence"""
     global counter_konlpy
     global total_dataset
@@ -87,10 +87,9 @@ def clean_str(s):
     s = re.sub('[0-9]', '', s)
     s = preprocess(s)
 
-    mecab = Mecab()
     #print(' '.join(kkma.nouns(s)))
     result = []
-    result = mecab.nouns(s)
+    result = tagger.nouns(s)
     #temp = []
     #temp = mecab.nouns(s)
     #for noun in temp:
@@ -105,11 +104,11 @@ def clean_str(s):
     if len(result) > 300:
         result = result[0:300]
     counter_konlpy += 1
-    #sys.stdout.write("\rParsed: %d / %d" %(counter_konlpy, total_dataset))
+    sys.stdout.write("\rParsed: %d / %d" %(counter_konlpy, total_dataset))
     #sys.stdout.flush()
     return ' '.join(result)
 
-def get_x_test(contents):
+def get_x_test(contents, tagger=Mecab()):
     """Step 1: load data for prediction"""
     columns = ['section', 'class', 'subclass', 'abstract']
     selected = ['section', 'abstract']
@@ -128,7 +127,7 @@ def get_x_test(contents):
     total_dataset = len(contents)
     #x_raw = [example['abstract'] for example in test_examples]
     #x_test = [data_helper.clean_str(x) for x in x_raw]
-    x_test = df[selected[1]].apply(lambda x: clean_str(x)).tolist()
+    x_test = df[selected[1]].apply(lambda x: clean_str(x, tagger)).tolist()
     #print("\nExecution time = {0:.5f}".format(time.time() - start))
 
     logging.info('The number of x_test: {}'.format(len(x_test)))
