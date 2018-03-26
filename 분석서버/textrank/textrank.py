@@ -13,8 +13,7 @@ def repl(m):
     return ' ' * len(m.group())
 # keywords, sentences
 class TextRank:
-
-    #박차장님께서 도와주신 전처리 함수입니다.
+    # 박차장님께서 도와주신 전처리 함수입니다.
     def preprocess(self, text):
 
         target_list = ["\t", "…", "·", "●", "○", "◎", "△", "▲", "◇", "■", "□", ":phone:", "☏", "※", ":arrow_forward:", "▷", "ℓ", "→", "↓", "↑", "┌", "┬", "┐", "├", "┤", "┼", "─", "│", "└", "┴", "┘"]
@@ -70,7 +69,7 @@ class TextRank:
         return text
 
     # quote remover and line splitter  result convert
-    # 인용구 지웠던 것을 다시 복구 시키는 함수입니다.
+    # 인용구 지웠던 것을 다시 복구 시킨다. (인용구 지우는 이유 : 라인을 좀 더 쉽게 자르기 위해)
     def convert_to_original_string(self, strings, original):
         idx = 0
         res = []
@@ -262,9 +261,9 @@ class TextRank:
     # get keywords 
     # 키워드 추출
     def keywords(self, num=15):
-        ranks = self.keyword_ranks  ## 구성한 그래프를 가져온다. (페이지 랭크)
-        wordFilter = self.taggerTokenizer   ## 단어 추출 기준 (pos tagging 된 것 중에 어떤게 키워드 추출할 수 있는 단어인지 구분)
-        cand = sorted(ranks, key=ranks.get, reverse=True)   ## 정렬
+        ranks = self.keyword_ranks ## 구성한 그래프를 가져온다. (페이지 랭크)
+        wordFilter = self.taggerTokenizer ## 단어 추출 기준( pos tagging 된 것 중에 어떤게 키워드 추출할 수 있는 단어인지 구분)
+        cand = sorted(ranks, key=ranks.get, reverse=True) ## 정렬
         pairness = { }
         startOf = { }
         tuples = { }
@@ -283,9 +282,7 @@ class TextRank:
         for (k, l) in sorted(pairness, key=pairness.get, reverse=True):
             if k not in startOf:
                 startOf[k] = (k, l)
-
-        #--------------------------------unigram 추출 및 PMI 계산 여기까지
-
+        #---------------------------unigram 추출 및 PMI 계산 여기까지
 
         # bigram 추출합니다.
         for (k, l), v in pairness.items():
@@ -301,7 +298,8 @@ class TextRank:
                 last = startOf[last][1]
                 rs *= ranks[last]
                 path += (last, )
-                # G(TR) * A(PMI) * Length 이 수식으로 bigram 추출 밑에 한 줄 코드가 이 수식. 나눗셈이 나오는건 산술평균 때문
+                # G(TR) * A(PMI) * Length
+                # 이 수식으로 bigram 추출, 밑에 한 줄 코드가 이 수식임. (참고. 나눗셈이 나오는 건 산술평균)
                 tuples[path] = pmis / (len(path) - 1) * res ** (1 / len(path)) * len(path)
 
         used = set()
@@ -316,18 +314,19 @@ class TextRank:
         unigram = []
         bigram = []
         avg = 0.0
-        # cost 평균 계산
+
+        # cost의 평균을 계산 
         for key in both.keys():
             avg += both[key]
         if len(both.keys()) > 0:
             avg /= len(both.keys())
-        
-        # 제목 단어 추출 (두줄)
+
+        # 제목 단어 추출
         titleWords = list(filter(wordFilter, self.readTaggerForTitle()))
         titleWords = list(map(lambda x: x[0], titleWords))
+        #--------제목 단어 추출 여기까지
 
-
-        # unigram 및 bigram을 본문에 나오는 형태로 저장 및 제목 가중치 조절 및 빈도 수 가중치 조절이 같이 들어가 있습니다.
+        # unigram 및 bigram을 본문에 나오는 형태로 저장 및 제목 가중치 조절 및 빈도 수 가중치 조절이 같이 들어가 있음
         for key in both.keys():
             if len(key) == 2:
                 # 특정 빈도수 이하는 가중치 뺄셈
@@ -369,16 +368,16 @@ class TextRank:
             bigram, ex_words = self.merge_n_gram_with_unigram(bigram, words)
             unigram = list(filter(lambda x: x[0] not in ex_words, unigram))
 
+        # 정렬 후 num 개수 만큼 추출
+        # 여기서 num은 tr.keywords(num=15) <-- 여기의 num 변수
         res = set(unigram + bigram)
         res = list(filter(lambda x: x[1] > 0.0, res))
-
-        # 정렬 후 num 개수 만큼 추출 (tr.keywords(num=15) <-- 여기의 num변수)
         res = sorted(res, key=lambda x: x[1], reverse=True)[:num]
 
         return res
 
 
-    ## 합친 단어가 전부 명사인지 다시한번 체크해주는 함수 (예: 다이어트 핵심이(X), 다이어트 핵심법(O))
+    ## 합친 단어가 전부 명사인지 다시한번 체크해주는 함수 (예: 다이어트 핵심이(X) 다이어트 핵심법(O)
     def check_word_is_noun(self, word):
         words = self.tagger.pos(word)
         return len(list(filter(lambda x: self.nounChecker(x[1]), words))) == len(words)
@@ -392,10 +391,10 @@ class TextRank:
         for words in n_gram:
             found = False
             for word in nouns:
-                ## 본문에는 붙어나오지만 형태소 분석기때문에 잘린 단어를 복구 (예:대나무숲 -> 숲이 제거되고 대나무만 추출 시)
+                ## 본문에는 붙어나오지만 형태소 분석기때문에 잘린 단어를 복구
                 prefix_joined = word[0] + words[0]
                 suffix_joined = words[0] + word[0]
-
+        
                 # 합칠 때 공백을 최대 1개만 허용
                 if prefix_joined in self.content and self.check_word_is_noun(prefix_joined):
                     found = True
@@ -438,6 +437,7 @@ class TextRank:
             if idx == 0:
                 continue
 
+            
             prev_word = words[idx-1]
             first_word_used = False
             # number + noun
@@ -473,9 +473,9 @@ class TextRank:
             
 
         return words
-    #Class 객체를 호출하면 맨 처음 실행하는 함수를 오버라이딩
+
     def __init__(self, **kwargs):
-        # 변수 default값으로 초기화 혹은 값을 받으면 그것으로 초기화
+        # method overidng 
         self.graph = None
         self.tagger = kwargs.get('tagger', Mecab())
         self.window = kwargs.get('window', 5)
@@ -501,10 +501,10 @@ class TextRank:
         self.dictNear = { }
         self.nTotal = 0
 
-        # only extract keyword NNG, NNP (일반 명사, 고유 명사, 외국어, 숫자, 한자 제외), 영어일 경우 영어 명사 사전에 등록된 단어인지 검색
+        # only extract keyword NNG, NNP (일반 명사, 고유 명사, 숫자, 한자 제외), 영어일 경우 영어 명사 사전에 등록된 단어인지 검색
         self.nounChecker = lambda x: x in ('NNG', 'NNP', 'SL')
         self.taggerTokenizer = lambda x: x[0] not in self.stopwords and self.nounChecker(x[1]) and (len(x[0]) > 1 or x[0] in self.singlewords) and re.compile('[一-龥]+').match(x[0]) is None
-        # 영어일 경우 영어 명사 사전에 등록된 단어인지 검색
+        # 영어일 경우 명사 사전에 등록된 단어인지 검색
         self.englishFilter = lambda x: x[1] != 'SL' or nltk.pos_tag([x[0]])[0][1][0] == 'N'
 
         # variables for sentence summarization
