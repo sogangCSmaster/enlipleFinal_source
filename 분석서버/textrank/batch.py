@@ -33,11 +33,14 @@ logging.basicConfig(
 
 
  
+### 메인 분석 순으로 정렬 ###
+# 메인함수 시작
 if __name__ == '__main__':
     daemon_func()
 
 
 
+# 데몬 function 함수
 def daemon_func():
 
     # declare global variable
@@ -62,6 +65,10 @@ def daemon_func():
         # fork socket server
         p1 = Process(target=server.web_start, args=(state,config['batch']['port']))
         # fork batch server
+
+
+
+        ### 분석process ###
         p2 = Process(target=main, args=(state,config['batch']))
         p1.start()
         p2.start()
@@ -81,6 +88,8 @@ def daemon_func():
         sys.exit(-1)
 
 
+
+###
 # state.value(0: alive, 1: error occur)
 def main(state, batch):
     # initialize variables
@@ -127,145 +136,6 @@ def main(state, batch):
     except Exception as e:
         logging.debug(e)
         state.value = 1
-
-
-def signal_term_handler(signal, frame):
-    global state
-    global p1
-    global p2
-
-    # set process is killed
-    state.value = 1
-    if p1 and p1.is_alive():
-        p1.terminate()
-
-    if p2 and p2.is_alive():
-        p2.terminate()
-
-    # kill process
-    sys.exit(-1)
-
-def check_socket(host, port):
-    # server check
-    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
-        sock.settimeout(2)
-        if sock.connect_ex((host, port)) == 0:
-            return True
-        else:
-            return False
-
-# config/singleword.txt
-def get_singlewords():
-    global global_singlewords
-    return global_singlewords
-
-# config/stopword.txt
-def get_stopwords(redis, root_domain):
-    global global_stopwords
-    return global_stopwords.union(redis.get_stopwords(root_domain))
-
-def ml_classifications(db, mongo, data, x_test, classification_models, bulk_op):
-    start_time = time.time()
-    logging.debug('ml classification start time : %f' %(start_time))
-    # initialize variable
-    classifications = { }
-
-    
-    for classification_model in classification_models:
-        model_name = classification_model
-        category_name = get_category_name(model_name)
-
-        if model_name is None:
-            # model does not exist
-            logging.debug('model not found')
-            continue
-
-        # get category options
-        category_options = predict_unseen_data(x_test, model_name)
-        # convert np array to python list
-
-        # create classifications object
-        if model_name == 'trained_model_sentiment':
-          for i in range(len(category_options)):
-              URI = data[i][0]
-              mongo.bulk_insert_sentiment(bulk_op, URI, category_options[i])
-        else:
-          for i in range(len(category_options)):
-              URI = data[i][0]
-
-              # initialize empty key
-              if not classifications.get(URI):
-                  classifications[URI] = []
-              classifications[URI].append({
-                  'name': category_name,
-                  'value': category_options[i]
-              })
-
-    mongo.bulk_insert_ml_classifications(bulk_op, classifications)
-    end_time = time.time()
-    logging.debug("ml classification end time : %f" %(end_time))
-    logging.debug("total execution time : %f" %(end_time - start_time))
-
-
-# 키워드를 추출하고 mongo에 bulk insert하는 함수
-def keyword(mongo, redis, tagger, data, bulk_op):
-    start_time = time.time()
-    logging.debug("keyword extraction start time : %f" %(start_time))
-    for idx, (URI, title, content, root_domain, wordcount) in enumerate(data):
-        # get stopwords from redis
-        stopwords = get_stopwords(redis, root_domain)
-        singlewords = get_singlewords()
-        coef = load_config()['coef']
-        title_word_addition_multiplier = load_config()['title_word_addition_multiplier']
-        minimum_low_freq = load_config()['minimum_low_freq']
-        low_freq_word_subtraction_multiplier = load_config()['low_freq_word_subtraction_multiplier']
-        tr = TextRank(tagger=tagger, window=5, content=content, stopwords=stopwords, singlewords=singlewords, title=title, coef=coef, title_word_addition_multiplier=title_word_addition_multiplier, minimum_low_freq=minimum_low_freq, low_freq_word_subtraction_multiplier=low_freq_word_subtraction_multiplier)
-
-        # build keyword graph
-        tr.keyword_rank()
-
-        # get keyword 키워드의 개수는 최대 15개로 제한
-        keywords = tr.keywords(num=15)
-        mongo.bulk_insert_keywords(bulk_op, URI, keywords)
-    end_time = time.time()
-    logging.debug("keyword extraction end time : %f" %(end_time))
-    logging.debug("total execution time : %f" %(end_time - start_time))
-
-# 문장을 추출하고 mongo에 bulk insert하는 함수
-def sentence(mongo, redis, tagger, data, bulk_op):
-    start_time = time.time()
-    logging.debug("sentence process start time : %f" %(start_time))
-    # get keywords, sentences using textrank algorithm
-    for idx, (URI, title, content, root_domain, wordcount) in enumerate(data):
-        # get stopwords from redis
-        stopwords = get_stopwords(redis, root_domain)
-        singlewords = get_singlewords()
-        coef = load_config()['coef']
-        title_word_addition_multiplier = load_config()['title_word_addition_multiplier']
-        minimum_low_freq = load_config()['minimum_low_freq']
-        low_freq_word_subtraction_multiplier = load_config()['low_freq_word_subtraction_multiplier']
-        tr = TextRank(tagger=tagger, window=5, content=content, stopwords=stopwords, singlewords=singlewords, title=title, coef=coef, title_word_addition_multiplier=title_word_addition_multiplier, minimum_low_freq=minimum_low_freq, low_freq_word_subtraction_multiplier=low_freq_word_subtraction_multiplier)
-
-        # build sentence graph
-        tr.sentence_rank()
-    
-        # wordcount의 개수에 따라 요약율 변경
-        summarize_rate = 0.3
-        if wordcount < 500:
-            summarize_rate = 0.3
-        elif wordcount <= 1000:
-            summarize_rate = 0.3
-        elif wordcount <= 2000:
-            summarize_rate = 0.2
-        elif wordcount <= 3000:
-            summarize_rate = 0.1
-
-        # get sentence
-        sentences = tr.sentences(summarize_rate)
-        mongo.bulk_insert_sentences(bulk_op, URI, sentences, summarize_rate)
-    end_time = time.time()
-    logging.debug("sentence process end time : %f" %(end_time))
-    logging.debug("total execute time : %f" %(end_time - start_time))
 
 
 # 프로세스를 시작하는 함수
@@ -325,6 +195,128 @@ def process_start(db, mongo, redis, tagger, data):
         raise e
 
 
+# 머신러닝 모델로 카테고리 분류
+def ml_classifications(db, mongo, data, x_test, classification_models, bulk_op):
+    start_time = time.time()
+    logging.debug('ml classification start time : %f' %(start_time))
+    # initialize variable
+    classifications = { }
+
+    
+    for classification_model in classification_models:
+        model_name = classification_model
+        category_name = get_category_name(model_name)
+
+        if model_name is None:
+            # model does not exist
+            logging.debug('model not found')
+            continue
+
+        # get category options
+        category_options = predict_unseen_data(x_test, model_name)
+        # convert np array to python list
+
+        # create classifications object
+        if model_name == 'trained_model_sentiment':
+          for i in range(len(category_options)):
+              URI = data[i][0]
+              mongo.bulk_insert_sentiment(bulk_op, URI, category_options[i])
+        else:
+          for i in range(len(category_options)):
+              URI = data[i][0]
+
+              # initialize empty key
+              if not classifications.get(URI):
+                  classifications[URI] = []
+              classifications[URI].append({
+                  'name': category_name,
+                  'value': category_options[i]
+              })
+
+    mongo.bulk_insert_ml_classifications(bulk_op, classifications)
+    end_time = time.time()
+    logging.debug("ml classification end time : %f" %(end_time))
+    logging.debug("total execution time : %f" %(end_time - start_time))
+
+
+
+# 키워드를 추출하고 mongo에 bulk insert하는 함수
+def keyword(mongo, redis, tagger, data, bulk_op):
+    start_time = time.time()
+    logging.debug("keyword extraction start time : %f" %(start_time))
+    for idx, (URI, title, content, root_domain, wordcount) in enumerate(data):
+        # get stopwords from redis
+        stopwords = get_stopwords(redis, root_domain)
+        singlewords = get_singlewords()
+        coef = load_config()['coef']
+        title_word_addition_multiplier = load_config()['title_word_addition_multiplier']
+        minimum_low_freq = load_config()['minimum_low_freq']
+        low_freq_word_subtraction_multiplier = load_config()['low_freq_word_subtraction_multiplier']
+        tr = TextRank(tagger=tagger, window=5, content=content, stopwords=stopwords, singlewords=singlewords, title=title, coef=coef, title_word_addition_multiplier=title_word_addition_multiplier, minimum_low_freq=minimum_low_freq, low_freq_word_subtraction_multiplier=low_freq_word_subtraction_multiplier)
+
+        # build keyword graph
+        tr.keyword_rank()
+
+        # get keyword 키워드의 개수는 최대 15개로 제한
+        keywords = tr.keywords(num=15)
+        mongo.bulk_insert_keywords(bulk_op, URI, keywords)
+    end_time = time.time()
+    logging.debug("keyword extraction end time : %f" %(end_time))
+    logging.debug("total execution time : %f" %(end_time - start_time))
+
+
+# 문장을 추출하고 mongo에 bulk insert하는 함수
+def sentence(mongo, redis, tagger, data, bulk_op):
+    start_time = time.time()
+    logging.debug("sentence process start time : %f" %(start_time))
+    # get keywords, sentences using textrank algorithm
+    for idx, (URI, title, content, root_domain, wordcount) in enumerate(data):
+        # get stopwords from redis
+        stopwords = get_stopwords(redis, root_domain)
+        singlewords = get_singlewords()
+        coef = load_config()['coef']
+        title_word_addition_multiplier = load_config()['title_word_addition_multiplier']
+        minimum_low_freq = load_config()['minimum_low_freq']
+        low_freq_word_subtraction_multiplier = load_config()['low_freq_word_subtraction_multiplier']
+        tr = TextRank(tagger=tagger, window=5, content=content, stopwords=stopwords, singlewords=singlewords, title=title, coef=coef, title_word_addition_multiplier=title_word_addition_multiplier, minimum_low_freq=minimum_low_freq, low_freq_word_subtraction_multiplier=low_freq_word_subtraction_multiplier)
+
+        # build sentence graph
+        tr.sentence_rank()
+    
+        # wordcount의 개수에 따라 요약율 변경
+        summarize_rate = 0.3
+        if wordcount < 500:
+            summarize_rate = 0.3
+        elif wordcount <= 1000:
+            summarize_rate = 0.3
+        elif wordcount <= 2000:
+            summarize_rate = 0.2
+        elif wordcount <= 3000:
+            summarize_rate = 0.1
+
+        # get sentence
+        sentences = tr.sentences(summarize_rate)
+        mongo.bulk_insert_sentences(bulk_op, URI, sentences, summarize_rate)
+    end_time = time.time()
+    logging.debug("sentence process end time : %f" %(end_time))
+    logging.debug("total execute time : %f" %(end_time - start_time))
+
+
+
+### 데이터 분석 함수 종료
+
+
+
+
+
+
+
+
+
+### 기타 함수들
+
+
+
 # 분산 mod연산
 def get_mod_from_server_list(batch, state):
     # get server list in config/config.json
@@ -356,5 +348,42 @@ def get_mod_from_server_list(batch, state):
     logging.debug('all server count %d' % (len(servers)))
     logging.debug('running server_count %d' %(server_count))
     return server_count, my_server_idx
+
+
+# kill signal handler
+def signal_term_handler(signal, frame):
+    global state
+    global p1
+    global p2
+
+    # set process is killed
+    state.value = 1
+    if p1 and p1.is_alive():
+        p1.terminate()
+
+    if p2 and p2.is_alive():
+        p2.terminate()
+
+    # kill process
+    sys.exit(-1)
+
+def check_socket(host, port):
+    # server check
+    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
+        sock.settimeout(2)
+        if sock.connect_ex((host, port)) == 0:
+            return True
+        else:
+            return False
+
+# config/singleword.txt
+def get_singlewords():
+    global global_singlewords
+    return global_singlewords
+
+# config/stopword.txt
+def get_stopwords(redis, root_domain):
+    global global_stopwords
+    return global_stopwords.union(redis.get_stopwords(root_domain))
 
 
