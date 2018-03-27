@@ -3,39 +3,35 @@
   "title_word_addition_multiplier": 2,
   "minimum_low_freq": 1,
   "low_freq_word_subtraction_multiplier": 0,
+  "nnp_addition_multiplier": 2,
   "mysql": {
-    "host": "172.20.0.106",
-    "database": "dreamsearch",
-    "username": "sogang",
-    "password": "sogang2018!",
+    "host": "localhost",
+    "database": "enliple",
+    "username": "root",
+    "password": "",
     "dialect": "mysql",
     "port": 3306
   },
   "redis": {
-    "host": "192.168.2.180",
-    "port": 7001,
-    "password": "1dnjf1dlf!"
+    "host": "localhost",
+    "port": 6379,
+    "password": ""
   },
   "mongo": {
-    "host": "192.168.2.180",
-    "port": 12001,
+    "host": "localhost",
+    "port": 27017,
     "database": "nlp"
   },
   "socketio": {
     "batch": {
-      "host": "192.168.2.180",
+      "host": "localhost",
       "port": 8000
     }
   },
   "serverlist": [
     {
       "order": 1,
-      "host": "192.168.2.180",
-      "port": 8000
-    },
-    {
-      "order": 2,
-      "host": "192.168.2.181",
+      "host": "localhost",
       "port": 8000
     }
   ]

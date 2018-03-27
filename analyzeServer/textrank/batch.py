@@ -106,6 +106,7 @@ def keyword(mongo, redis, tagger, data, bulk_op):
 
     singlewords = get_singlewords()
     coef = load_config()['coef']
+    nnp_addition_multiplier = load_config()['nnp_addition_multiplier']
     title_word_addition_multiplier = load_config()['title_word_addition_multiplier']
     minimum_low_freq = load_config()['minimum_low_freq']
     low_freq_word_subtraction_multiplier = load_config()['low_freq_word_subtraction_multiplier']
@@ -113,7 +114,7 @@ def keyword(mongo, redis, tagger, data, bulk_op):
     for idx, (URI, title, content, root_domain, wordcount) in enumerate(data):
         # get stopwords from redis
         stopwords = get_stopwords(redis, root_domain)
-        tr = TextRank(tagger=tagger, window=5, content=content, stopwords=stopwords, singlewords=singlewords, title=title, coef=coef, title_word_addition_multiplier=title_word_addition_multiplier, minimum_low_freq=minimum_low_freq, low_freq_word_subtraction_multiplier=low_freq_word_subtraction_multiplier)
+        tr = TextRank(tagger=tagger, window=5, content=content, stopwords=stopwords, singlewords=singlewords, title=title, coef=coef, title_word_addition_multiplier=title_word_addition_multiplier, minimum_low_freq=minimum_low_freq, low_freq_word_subtraction_multiplier=low_freq_word_subtraction_multiplier, nnp_addition_multiplier=nnp_addition_multiplier)
 
         # build keyword graph
         tr.keyword_rank()

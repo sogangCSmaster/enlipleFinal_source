@@ -150,26 +150,26 @@ class TextRank:
                 joined2 = '%s%s' % (sent[i-1][0], word[0])
                 # check similar word (ex: iPhone6, iPhone 6)
                 # inset near pair. then, similar word is removed
-                if i - 1 >= 0 and wordFilter((joined1, 'NNG')) or wordFilter((joined2, 'NNG')):
+                if i - 1 >= 0 and wordFilter((joined1, 'NNP')) or wordFilter((joined2, 'NNP')):
                     insertNearPair(sent[i-1], word)
                 if i+1 < len(sent):
                     # news content based bigram
                     joined3 = '%s %s' % (word[0], sent[i+1][0])
                     joined4 = '%s%s' % (word[0], sent[i+1][0])
-                    if wordFilter((joined3, 'NNG')) or wordFilter((joined4, 'NNG')):
+                    if wordFilter((joined3, 'NNP')) or wordFilter((joined4, 'NNP')):
                         insertNearPair(word, sent[i+1])
 
                 # construct bigram count
                 for j in range(i+1, min(i + self.window + 1, len(sent))):
                         joined1 = '%s %s' % (word[0], sent[j][0])
                         joined2 = '%s%s' % (word[0], sent[j][0])
-                        if sent[j] != word and (wordFilter((joined1, 'NNG')) or wordFilter((joined2, 'NNG'))):
+                        if sent[j] != word and (wordFilter((joined1, 'NNP')) or wordFilter((joined2, 'NNP'))):
                             insertPair(word, sent[j])
 
         # similar word count concatenate (ex: iPhone6, iPhone 6)
         unigrams = self.taggerDictCount.keys()
         for key in self.taggerDictBiCount.keys():
-            joined1 = ('%s%s' % (key[0][0], key[1][0]), 'NNG')
+            joined1 = ('%s %s' % (key[0][0], key[1][0]), 'NNP')
             joined2 = ('%s%s' % (key[0][0], key[1][0]), 'NNP')
             if joined1 in unigrams:
                 self.taggerDictCount[joined1] = self.taggerDictCount.get(joined1, 0) + self.taggerDictBiCount.get(key, 0)
@@ -310,15 +310,24 @@ class TextRank:
             if len(key) == 2:
                 if self.taggerDictCount[key[0]] <= self.minimum_low_freq or self.taggerDictCount[key[1]] <= self.minimum_low_freq:
                     both[key] -= avg * self.low_freq_word_subtraction_multiplier
+                if key[0][1] == 'NNP' or key[1][1] == 'NNP':
+                    pass
+                    both[key] += avg * self.nnp_addition_multiplier
                 if key[0][0] in titleWords or key[1][0] in titleWords:
                     both[key] += avg * self.title_word_addition_multiplier
                 joined1 = '%s %s' % (key[0][0], key[1][0])
                 joined2 = '%s%s' % (key[0][0], key[1][0])
-                if joined1 in self.content and wordFilter((joined1, 'NNG')):
+                if joined1 in self.content and wordFilter((joined1, 'NNP')):
                     bigrams.append((joined1, both[key]))
-                elif joined2 in self.content and wordFilter((joined2, 'NNG')):
+                elif joined2 in self.content and wordFilter((joined2, 'NNP')):
                     bigrams.append((joined2, both[key]))
+                elif key[0][0] in self.content:
+                    unigrams.append((key[0][0], both[key]))
+                elif key[1][0] in self.content:
+                    unigrams.append((key[1][0], both[key]))
             else:
+                if key[0][1] == 'NNP':
+                    both[key] += avg * self.nnp_addition_multiplier
                 if self.taggerDictCount[key[0]] <= self.minimum_low_freq:
                     both[key] -= avg * self.low_freq_word_subtraction_multiplier
                 if key[0][0] in titleWords:
@@ -328,14 +337,17 @@ class TextRank:
                 if key[0][1] != 'SN':
                     unigrams.append(('%s' % (key[0][0]), both[key]))
 
-        unigrams = list(filter(lambda x: x[1] > 0.0, unigrams))[:num]
-        bigrams = list(filter(lambda x: x[1] > 0.0, bigrams))[:num]
+        unigrams = sorted(list(filter(lambda x: x[1] > 0.0, unigrams)))[:num*2]
+        bigrams = sorted(list(filter(lambda x: x[1] > 0.0, bigrams)))[:num*2]
 
 
         res = set([])
         ## 공백없는 복합단어를 합친다. ex) 한양대 대나무/숲/향기 -> 한양대 대나무숲향기
-        bigrams, ex_words = self.expand_bigram_to_match_context(bigrams)
+        bigrams, ex_words = self.expand_n_gram_to_match_context(bigrams)
         unigrams = list(filter(lambda x: x[0] not in ex_words, unigrams))
+        unigrams, ex_words = self.expand_n_gram_to_match_context(unigrams)
+        unigrams = list(filter(lambda x: x[0] not in ex_words, unigrams))
+
 
         res = self.merge_expanded_similar_word(bigrams, unigrams)
         res = list(filter(lambda x: x[1] > 0.0, res))
@@ -355,7 +367,8 @@ class TextRank:
             
 
 
-        for bigram in bigrams:
+        iters = bigrams + unigrams
+        for bigram in iters:
             words = bigram[0].split(' ')
             if len(words) == 1:
                 continue
@@ -372,7 +385,7 @@ class TextRank:
         return res
 
     ## 본문에 나온 형태로 띄어쓰기 없는 명사단어를 붙여주는 함수
-    def expand_bigram_to_match_context(self, n_gram):
+    def expand_n_gram_to_match_context(self, n_gram):
 
         res = []
         ex_words = set([])
@@ -387,7 +400,7 @@ class TextRank:
             while left >=0 and self.boundaryChecker(self.content[left]): left -= 1
             while right < len(self.content) and self.boundaryChecker(self.content[right]): right += 1
 
-            morph = self.content[left: right+1]
+            morph = self.content[left+1: right+1]
             poses = self.tagger.pos(morph)
 
             left = -1
@@ -395,11 +408,16 @@ class TextRank:
             for idx, pos in enumerate(poses):
                 if idx == len(poses)-1:
                     break
+                # bigram check
                 joined1 = poses[idx][0] + poses[idx+1][0]
                 joined2 = poses[idx][0] + ' ' + poses[idx+1][0]
                 if joined1 == words[0] or joined2 == words[0]:
                     left = idx - 1
                     right = idx + 2
+                # unigram check
+                elif poses[idx][0] == words[0]:
+                    left = idx - 1
+                    right = idx + 1
 
             lower = 0
             upper = len(poses)-1
@@ -473,9 +491,9 @@ class TextRank:
                 if not noun:
                     continue
                 if prefix_noun1 in self.content:
-                    words[idx] = ((prefix_noun1, 'NNG'))
+                    words[idx] = ((prefix_noun1, 'NNP'))
                 elif prefix_noun2 in self.content:
-                    words[idx] = ((prefix_noun2, 'NNG'))
+                    words[idx] = ((prefix_noun2, 'NNP'))
 
 
             
@@ -496,6 +514,7 @@ class TextRank:
         self.title_word_addition_multiplier = kwargs.get('title_word_addition_multiplier', 1)
         self.minimum_low_freq = kwargs.get('minimum_low_freq', 1)
         self.low_freq_word_subtraction_multiplier = kwargs.get('low_freq_word_subtraction_multiplier', 0)
+        self.nnp_addition_multiplier = kwargs.get('nnp_addition_multiplier', 0)
         self.keyword_ranks = []
         self.sentence_ranks = []
 
