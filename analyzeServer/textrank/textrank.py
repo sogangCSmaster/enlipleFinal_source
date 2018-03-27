@@ -311,8 +311,9 @@ class TextRank:
                 if self.taggerDictCount[key[0]] <= self.minimum_low_freq or self.taggerDictCount[key[1]] <= self.minimum_low_freq:
                     both[key] -= avg * self.low_freq_word_subtraction_multiplier
                 if key[0][1] == 'NNP' or key[1][1] == 'NNP':
-                    pass
                     both[key] += avg * self.nnp_addition_multiplier
+                if key[0][1] == 'NNG' or key[1][1] == 'NNG':
+                    both[key] += avg * self.nng_addition_multiplier
                 if key[0][0] in titleWords or key[1][0] in titleWords:
                     both[key] += avg * self.title_word_addition_multiplier
                 joined1 = '%s %s' % (key[0][0], key[1][0])
@@ -321,13 +322,16 @@ class TextRank:
                     bigrams.append((joined1, both[key]))
                 elif joined2 in self.content and wordFilter((joined2, 'NNP')):
                     bigrams.append((joined2, both[key]))
-                elif key[0][0] in self.content:
-                    unigrams.append((key[0][0], both[key]))
-                elif key[1][0] in self.content:
-                    unigrams.append((key[1][0], both[key]))
+                else:
+                    if key[0][0] in self.content:
+                        unigrams.append((key[0][0], both[key]))
+                    if key[1][0] in self.content:
+                        unigrams.append((key[1][0], both[key]))
             else:
                 if key[0][1] == 'NNP':
                     both[key] += avg * self.nnp_addition_multiplier
+                if key[0][1] == 'NNG':
+                    both[key] += avg * self.nng_addition_multiplier
                 if self.taggerDictCount[key[0]] <= self.minimum_low_freq:
                     both[key] -= avg * self.low_freq_word_subtraction_multiplier
                 if key[0][0] in titleWords:
@@ -337,16 +341,13 @@ class TextRank:
                 if key[0][1] != 'SN':
                     unigrams.append(('%s' % (key[0][0]), both[key]))
 
-        unigrams = sorted(list(filter(lambda x: x[1] > 0.0, unigrams)))[:num*2]
-        bigrams = sorted(list(filter(lambda x: x[1] > 0.0, bigrams)))[:num*2]
-
+        unigrams = sorted(list(filter(lambda x: x[1] > 0.0, unigrams)), key=lambda x: x[1], reverse=True)[:num*2]
+        bigrams = sorted(list(filter(lambda x: x[1] > 0.0, bigrams)), key=lambda x: x[1], reverse=True)[:num*2]
 
         res = set([])
         ## 공백없는 복합단어를 합친다. ex) 한양대 대나무/숲/향기 -> 한양대 대나무숲향기
-        bigrams, ex_words = self.expand_n_gram_to_match_context(bigrams)
-        unigrams = list(filter(lambda x: x[0] not in ex_words, unigrams))
-        unigrams, ex_words = self.expand_n_gram_to_match_context(unigrams)
-        unigrams = list(filter(lambda x: x[0] not in ex_words, unigrams))
+        bigrams = self.expand_n_gram_to_match_context(bigrams, is_bigram=True)
+        unigrams = self.expand_n_gram_to_match_context(unigrams, is_bigram=False)
 
 
         res = self.merge_expanded_similar_word(bigrams, unigrams)
@@ -361,9 +362,17 @@ class TextRank:
         # bigram_dict[word] = cost
         cost_dict = { }
         for bigram in bigrams:
-            cost_dict[bigram[0]] = bigram[1]
+            # 이미 중복된 키면 cost 를 더한다
+            if bigram[0] in cost_dict:
+                cost_dict[bigram[0]] += bigram[1]
+            else:
+                cost_dict[bigram[0]] = bigram[1]
         for unigram in unigrams:
-            cost_dict[unigram[0]] = unigram[1]
+            # 이미 중복된 키면 cost 더함
+            if unigram[0] in cost_dict:
+                cost_dict[unigram[0]] += unigram[1]
+            else:
+                cost_dict[unigram[0]] = unigram[1]
             
 
 
@@ -385,37 +394,80 @@ class TextRank:
         return res
 
     ## 본문에 나온 형태로 띄어쓰기 없는 명사단어를 붙여주는 함수
-    def expand_n_gram_to_match_context(self, n_gram):
+    def expand_n_gram_to_match_context(self, n_gram, is_bigram=True):
 
         res = []
-        ex_words = set([])
         for words in n_gram:
 
             # words 를 본문에서 찾아서 공백이 없을때까지 다 합친다. 그리고 words 에서 나온 단어를 제외하고 붙인다.
 
-            position = self.content.find(words[0])
-            left = position - 1
-            right = position + len(words[0])
+            position = -1
+            found = False
+            poses = []
+            morph = ''
+            ## position search
+            while (position < len(self.content)):
+                position = self.content.find(words[0], position + 1)
+                if position == -1: break
 
-            while left >=0 and self.boundaryChecker(self.content[left]): left -= 1
-            while right < len(self.content) and self.boundaryChecker(self.content[right]): right += 1
+                left = position - 1
+                left_space = 0
+                right = position + len(words[0])
+                right_space = 0
 
-            morph = self.content[left+1: right+1]
-            poses = self.tagger.pos(morph)
+                while left >=0:
+                    if not self.boundaryChecker(self.content[left]):
+                        left_space += 1
+                    if left_space == 2:
+                        break
+                    left -= 1
+                while right < len(self.content):
+                    if not self.boundaryChecker(self.content[right]):
+                        right_space += 1
+                    if right_space == 2:
+                        break
+                    right += 1
 
+                # 단어 단어 단어
+
+                morph = self.content[left+1: right+1]
+                poses = self.tagger.pos(morph)
+
+                if is_bigram or words[0] in list(map(lambda x: x[0], poses)):
+                    found = True
+                    break
+
+            if not found:
+                continue
+            while len(poses) and left_space == 2:
+                position = morph.find(poses[0][0])
+                if position != -1 and (not self.boundaryChecker(morph[position]) or position + len(poses[0][0]) < len(morph) and not self.boundaryChecker(morph[position + len(poses[0][0])])):
+                    poses.pop(0)
+                    break
+                poses.pop(0)
+
+            while len(poses) and right_space == 2:
+                position = morph.find(poses[len(poses)-1][0])
+                if position != -1 and (not self.boundaryChecker(morph[position]) or position > 0 and not self.boundaryChecker(morph[position-1])):
+                    poses.pop()
+                    break
+                poses.pop()
+                
             left = -1
             right = len(poses)
+
             for idx, pos in enumerate(poses):
-                if idx == len(poses)-1:
-                    break
                 # bigram check
-                joined1 = poses[idx][0] + poses[idx+1][0]
-                joined2 = poses[idx][0] + ' ' + poses[idx+1][0]
-                if joined1 == words[0] or joined2 == words[0]:
-                    left = idx - 1
-                    right = idx + 2
+                if idx + 1 <= len(poses)-1:
+                    joined1 = poses[idx][0] + poses[idx+1][0]
+                    joined2 = poses[idx][0] + ' ' + poses[idx+1][0]
+                    if joined1 == words[0] or joined2 == words[0]:
+                        left = idx - 1
+                        right = idx + 2
+                        break
+
                 # unigram check
-                elif poses[idx][0] == words[0]:
+                if poses[idx][0] == words[0]:
                     left = idx - 1
                     right = idx + 1
 
@@ -424,21 +476,30 @@ class TextRank:
 
             merged_bigram = words[0]
 
+            left_partials = []
             while lower <= left:
-                if self.nounChecker(poses[lower][1]):
-                    merged_bigram = poses[lower][0] + merged_bigram
-                    ex_words.add(poses[lower][0])
+                if self.mergeNounChecker(poses[lower][1]):
+                    left_partials.append(poses[lower][0])
+                else:
+                    left_partials = []
                 lower += 1
 
+            for word in reversed(left_partials):
+                merged_bigram = word + merged_bigram
+
+            right_partials = []
             while right <= upper:
-                if self.nounChecker(poses[upper][1]):
-                    merged_bigram = merged_bigram + poses[upper][0]
-                    ex_words.add(poses[lower][0])
+                if self.mergeNounChecker(poses[upper][1]):
+                    right_partials.append(poses[upper][0])
+                else:
+                    right_partials = []
                 upper -=1
 
-            res.append((merged_bigram, words[1]))
+            for word in reversed(right_partials):
+                merged_bigram = merged_bigram + word
 
-        return res, ex_words
+            res.append((merged_bigram, words[1]))
+        return res
 
     # pagerank apply
     def sentence_rank(self):
@@ -470,7 +531,7 @@ class TextRank:
             if prev_word[1] == 'SN':
                 noun = ''
                 for idx2 in range(idx, len(words)):
-                    if words[idx2][1][0] == 'N':
+                    if words[idx2][1] == 'SL' or (words[idx2][1][0] == 'N' and words[idx2][1] != 'NNBC' and words[idx2][1] != 'NR'):
                         prefix_noun1 = noun + words[idx2][0]
                         prefix_noun2 = noun + ' ' + words[idx2][0]
                         if prefix_noun1 in self.content:
@@ -515,6 +576,7 @@ class TextRank:
         self.minimum_low_freq = kwargs.get('minimum_low_freq', 1)
         self.low_freq_word_subtraction_multiplier = kwargs.get('low_freq_word_subtraction_multiplier', 0)
         self.nnp_addition_multiplier = kwargs.get('nnp_addition_multiplier', 0)
+        self.nng_addition_multiplier = kwargs.get('nng_addition_multiplier', 0)
         self.keyword_ranks = []
         self.sentence_ranks = []
 
@@ -530,6 +592,7 @@ class TextRank:
 
         # only extract keyword NNG, NNP (일반 명사, 고유 명사, 외국어, 숫자, 한자 제외), 영어일 경우 영어 명사 사전에 등록된 단어인지 검색
         self.nounChecker = lambda x: x in ('NNG', 'NNP', 'SL')
+        self.mergeNounChecker = lambda x: x in ('NNG', 'NNP', 'SL', 'NNB')
         # 숫자, 영어, 한글이면 일단 단어 경계에서 제외 (단어를 확장할때 쓴다)
         self.boundaryChecker = lambda x: re.compile('[a-zA-Z0-9가-힣]+').match(x)
 
