@@ -55,6 +55,7 @@ def get_stopwords(redis, root_domain):
 
 def ml_classifications(db, mongo, data, x_test, classification_models, bulk_op):
     start_time = time.time()
+    logging.debug('*********************************')
     logging.debug('ml classification start time : %f' %(start_time))
     # initialize variable
     classifications = { }
@@ -93,12 +94,14 @@ def ml_classifications(db, mongo, data, x_test, classification_models, bulk_op):
     mongo.bulk_insert_ml_classifications(bulk_op, classifications)
     end_time = time.time()
     logging.debug("ml classification end time : %f" %(end_time))
-    logging.debug("total execution time : %f" %(end_time - start_time))
+    logging.debug("ml classification total execution time : %f" %(end_time - start_time))
+    logging.debug("**************************************")
 
 
 # 키워드를 추출하고 mongo에 bulk insert하는 함수
 def keyword(mongo, redis, tagger, data, bulk_op):
     start_time = time.time()
+    logging.debug("\n**********************************")
     logging.debug("keyword extraction start time : %f" %(start_time))
 
     singlewords = get_singlewords()
@@ -122,11 +125,13 @@ def keyword(mongo, redis, tagger, data, bulk_op):
 
     end_time = time.time()
     logging.debug("keyword extraction end time : %f" %(end_time))
-    logging.debug("total execution time : %f" %(end_time - start_time))
+    logging.debug("keywords total execution time : %f" %(end_time - start_time))
+    logging.debug("*************************************\n")
 
 # 문장을 추출하고 mongo에 bulk insert하는 함수
 def sentence(mongo, redis, tagger, data, bulk_op):
     start_time = time.time()
+    logging.debug("\n************************************")
     logging.debug("sentence process start time : %f" %(start_time))
 
     singlewords = get_singlewords()
@@ -160,13 +165,15 @@ def sentence(mongo, redis, tagger, data, bulk_op):
         mongo.bulk_insert_sentences(bulk_op, URI, sentences, summarize_rate)
     end_time = time.time()
     logging.debug("sentence process end time : %f" %(end_time))
-    logging.debug("total execute time : %f" %(end_time - start_time))
+    logging.debug("sentences total execute time : %f" %(end_time - start_time))
+    logging.debug("*******************************\n")
 
 
 # 프로세스를 시작하는 함수
 def process_start(db, mongo, redis, tagger, data):
-    logging.debug("Process start")
+    logging.debug("*******Process start********")
     start_time = time.time()
+    
 
     try:
 
@@ -197,24 +204,31 @@ def process_start(db, mongo, redis, tagger, data):
             mongo.bulk_update_metadata(bulk_op, URI, wordcount)
             URIs.append(URI)
         st_time = time.time()
+        logging.debug("\n*********************************")
         logging.debug("mongo bulk_op start time : %f" %(st_time))
         mongo.execute_bulk_op(bulk_op)
         en_time = time.time()
         logging.debug("mongo bulk_op start time : %f" %(en_time))
-        logging.debug("total execution time : %f" %(en_time - st_time))
+        logging.debug("mongo bulk operation total execution time : %f" %(en_time - st_time))
+        logging.debug("***********************************\n")
 
         
         crawling_bulk_op = mongo.create_crawling_bulk_op()
         mongo.bulk_update_read_check(crawling_bulk_op, URIs)
         stt_time = time.time()
+        logging.debug("\n*********************************")
         logging.debug("mongo.execute_bulk_op time : %f" %(stt_time))
         mongo.execute_bulk_op(crawling_bulk_op)
         endd_time = time.time()
         logging.debug("mongo.execute_bulk_op end time : %f" %(endd_time))
-        logging.debug("execution time : %f" %(endd_time - stt_time))
-        logging.debug("Process end")
+        logging.debug("mongo execution total time : %f" %(endd_time - stt_time))
+        logging.debug("*************************************\n")
+
+        
+        logging.debug("********** Process end ***********")
         elapsed_time = time.time() - start_time
-        logging.debug("Elapsed time : %f" % (elapsed_time))
+        logging.debug("Process total elapsed time : %f" % (elapsed_time))
+        logging.debug("***************************\n")
     except Exception as e:
         logging.debug(traceback.format_exc())
         raise e
