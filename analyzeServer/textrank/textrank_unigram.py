@@ -281,15 +281,6 @@ class TextRank:
         else:
             return math.log(self.nTotal / self.taggerDictCount[a])
 
-    # get Pointwise Mutual Information PMI(X, Y) = log(P(X intersection Y) / (P(X) * P(y)))
-    def getPMI(self, a, b):
-        co = self.dictNear.get((a, b), 0)
-        if not co:
-            return None
-        else:
-            return math.log(float(co) * self.nTotal / self.taggerDictCount[a] /
-                    self.taggerDictCount[b])
-
     # pagerank apply
     # 형태소 분석
     # 명사 추출
@@ -327,32 +318,6 @@ class TextRank:
 
         for k in cand:
             tuples[(k, )] = self.getI(k) * ranks[k]
-            for l in cand:
-                if k == l:
-                    continue
-                pmi = self.getPMI(k, l)
-                if pmi:
-                    pairness[k, l] = pmi
-        
-        for (k, l) in sorted(pairness, key=pairness.get, reverse=True):
-            if k not in startOf:
-                startOf[k] = (k, l)
-
-        for (k, l), v in pairness.items():
-            pmis = v
-            rs = ranks[k] * ranks[l]
-            path = (k, l)
-            tuples[path] = pmis / (len(path) - 1) * rs ** (1 / len(path)) * len(path)
-            last = l
-            while last in startOf and len(path) < 7:
-                if last in path:
-                    break
-                pmis += pairness[startOf[last]]
-                last = startOf[last][1]
-                rs *= ranks[last]
-                path += (last, )
-                # G(TR) * A(PMI) * Length
-                tuples[path] = pmis / (len(path) - 1) * rs ** (1 / len(path)) * len(path)
 
         used = set()
         both = { }
@@ -364,7 +329,6 @@ class TextRank:
                 used.add(w)
                 
         unigrams = []
-        bigrams = []
         avg = 0.0
         for key in both.keys():
             avg += both[key]
@@ -374,50 +338,24 @@ class TextRank:
         titleWords = list(filter(wordFilter, self.readTaggerForTitle()))
         titleWords = list(map(lambda x: x[0], titleWords))
         for key in both.keys():
-            if len(key) == 2:
-                if self.taggerDictCount[key[0]] <= self.minimum_low_freq or self.taggerDictCount[key[1]] <= self.minimum_low_freq:
-                    both[key] -= avg * self.low_freq_word_subtraction_multiplier
-                if key[0][1] == 'NNP' or key[1][1] == 'NNP':
-                    both[key] += avg * self.nnp_addition_multiplier
-                if key[0][1] == 'NNG' or key[1][1] == 'NNG':
-                    both[key] += avg * self.nng_addition_multiplier
-                if key[0][0] in titleWords or key[1][0] in titleWords:
-                    both[key] += avg * self.title_word_addition_multiplier
-                joined1 = '%s %s' % (key[0][0], key[1][0])
-                joined2 = '%s%s' % (key[0][0], key[1][0])
-                if joined1 in self.content and wordFilter((joined1, 'NNP')):
-                    bigrams.append((joined1, both[key]))
-                elif joined2 in self.content and wordFilter((joined2, 'NNP')):
-                    bigrams.append((joined2, both[key]))
-                else:
-                    if key[0][0] in self.content:
-                        unigrams.append((key[0][0], both[key]))
-                    if key[1][0] in self.content:
-                        unigrams.append((key[1][0], both[key]))
-            else:
-                if key[0][1] == 'NNP':
-                    both[key] += avg * self.nnp_addition_multiplier
-                if key[0][1] == 'NNG':
-                    both[key] += avg * self.nng_addition_multiplier
-                if self.taggerDictCount[key[0]] <= self.minimum_low_freq:
-                    both[key] -= avg * self.low_freq_word_subtraction_multiplier
-                if key[0][0] in titleWords:
-                    both[key] += avg * self.title_word_addition_multiplier
+            if key[0][1] == 'NNP':
+                both[key] += avg * self.nnp_addition_multiplier
+            if key[0][1] == 'NNG':
+                both[key] += avg * self.nng_addition_multiplier
+            if self.taggerDictCount[key[0]] <= self.minimum_low_freq:
+                both[key] -= avg * self.low_freq_word_subtraction_multiplier
+            if key[0][0] in titleWords:
+                both[key] += avg * self.title_word_addition_multiplier
 
-                # 수사가 아니면 단일 단어 추가
-                if key[0][1] != 'SN':
-                    unigrams.append(('%s' % (key[0][0]), both[key]))
+            # 수사가 아니면 단일 단어 추가
+            if key[0][1] != 'SN':
+                unigrams.append(('%s' % (key[0][0]), both[key]))
 
         unigrams = sorted(list(filter(lambda x: x[1] > 0.0, unigrams)), key=lambda x: x[1], reverse=True)[:num*2]
-        bigrams = sorted(list(filter(lambda x: x[1] > 0.0, bigrams)), key=lambda x: x[1], reverse=True)[:num*2]
 
-        res = set([])
-        ## 공백없는 복합단어를 합친다. ex) 한양대 대나무/숲/향기 -> 한양대 대나무숲향기
-        bigrams = self.expand_n_gram_to_match_context(bigrams, is_bigram=True)
         unigrams = self.expand_n_gram_to_match_context(unigrams, is_bigram=False)
 
-
-        res = self.merge_expanded_similar_word(bigrams, unigrams)
+        res = self.merge_expanded_similar_word([], unigrams)
         res = list(filter(lambda x: x[1] > 0.0, res))
         res = sorted(res, key=lambda x: x[1], reverse=True)[:num]
 

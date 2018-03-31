@@ -6,7 +6,7 @@ import logging
 import sys
 import numpy as np
 import traceback
-from multiprocessing import Process, Queue, Value
+from multiprocessing import Process, Value
 from datetime import datetime
 import server
 import socket
@@ -32,8 +32,11 @@ logging.basicConfig(
 )
 
 
-
-
+# socket이 개방되었는지 체크
+# 개방되어있으면 True, 아니면 False
+# host: string of ip
+# port: int
+# return: True/False
 def check_socket(host, port):
     # server check
     with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
@@ -44,18 +47,29 @@ def check_socket(host, port):
             return False
 
 # config/singleword.txt
+# single word를 구한다
+# return: Array(string)
 def get_singlewords():
     global global_singlewords
     return global_singlewords
 
 # config/stopword.txt
+# 특정 root_domain에 적용되는 불용어 사전을 가져온다.
+# root_domain: string
+# return: Array(string)
 def get_stopwords(redis, root_domain):
     global global_stopwords
     return global_stopwords.union(redis.get_stopwords(root_domain))
 
+# 딥러닝 분류
+# db: config/db.py 의 DB instance
+# mongo: config/mongo.py 의 Mongo instance
+# data: main 함수에서 가져온 분석할 기사 데이터
+# x_test: pandas DataFrame 배열
+# classification_models: 분석 서버가 가지고 있는 분류 모델들의 이름
+# bulk_op: MongoDB 의 result collection 의 bulk API instance
 def ml_classifications(db, mongo, data, x_test, classification_models, bulk_op):
     start_time = time.time()
-    logging.debug('*********************************')
     logging.debug('ml classification start time : %f' %(start_time))
     # initialize variable
     classifications = { }
@@ -94,28 +108,30 @@ def ml_classifications(db, mongo, data, x_test, classification_models, bulk_op):
     mongo.bulk_insert_ml_classifications(bulk_op, classifications)
     end_time = time.time()
     logging.debug("ml classification end time : %f" %(end_time))
-    logging.debug("ml classification total execution time : %f" %(end_time - start_time))
-    logging.debug("**************************************")
+    logging.debug("total execution time : %f" %(end_time - start_time))
 
 
 # 키워드를 추출하고 mongo에 bulk insert하는 함수
+# mongo: config/mongo.py 의 Mongo instance
+# redis: config/pyredis.py 의 Redis instance
+# tagger: konlpy.tag 의 Mecab instance
+# data: main 함수에서 가져온 분석할 뉴스 기사 데이터
+# bulk_op: MongoDB 의 result collection bulk API instance
 def keyword(mongo, redis, tagger, data, bulk_op):
     start_time = time.time()
-    logging.debug("\n**********************************")
     logging.debug("keyword extraction start time : %f" %(start_time))
 
     singlewords = get_singlewords()
     coef = load_config()['coef']
-    nnp_addition_multiplier = load_config()['nnp_addition_multiplier']
-    nng_addition_multiplier = load_config()['nng_addition_multiplier']
     title_word_addition_multiplier = load_config()['title_word_addition_multiplier']
     minimum_low_freq = load_config()['minimum_low_freq']
+    nnp_addition_multiplier = load_config()['nnp_addition_multiplier']
     low_freq_word_subtraction_multiplier = load_config()['low_freq_word_subtraction_multiplier']
 
     for idx, (URI, title, content, root_domain, wordcount) in enumerate(data):
         # get stopwords from redis
         stopwords = get_stopwords(redis, root_domain)
-        tr = TextRank(tagger=tagger, window=5, content=content, stopwords=stopwords, singlewords=singlewords, title=title, coef=coef, title_word_addition_multiplier=title_word_addition_multiplier, minimum_low_freq=minimum_low_freq, low_freq_word_subtraction_multiplier=low_freq_word_subtraction_multiplier, nnp_addition_multiplier=nnp_addition_multiplier, nng_addition_multiplier=nng_addition_multiplier)
+        tr = TextRank(tagger=tagger, window=5, content=content, stopwords=stopwords, singlewords=singlewords, title=title, coef=coef, title_word_addition_multiplier=title_word_addition_multiplier, minimum_low_freq=minimum_low_freq, low_freq_word_subtraction_multiplier=low_freq_word_subtraction_multiplier)
 
         # build keyword graph
         tr.keyword_rank()
@@ -127,13 +143,15 @@ def keyword(mongo, redis, tagger, data, bulk_op):
 
     end_time = time.time()
     logging.debug("keyword extraction end time : %f" %(end_time))
-    logging.debug("keywords total execution time : %f" %(end_time - start_time))
-    logging.debug("*************************************\n")
+    logging.debug("total execution time : %f" %(end_time - start_time))
 
 # 문장을 추출하고 mongo에 bulk insert하는 함수
+# mongo: config/mongo.py 의 Mongo instance
+# redis: config/pyredis.py 의 Redis instance
+# tagger: konlpy.tag 의 Mecab instance
+# bulk_op: MongoDB result collection bulk API instance
 def sentence(mongo, redis, tagger, data, bulk_op):
     start_time = time.time()
-    logging.debug("\n************************************")
     logging.debug("sentence process start time : %f" %(start_time))
 
     singlewords = get_singlewords()
@@ -141,11 +159,12 @@ def sentence(mongo, redis, tagger, data, bulk_op):
     title_word_addition_multiplier = load_config()['title_word_addition_multiplier']
     minimum_low_freq = load_config()['minimum_low_freq']
     low_freq_word_subtraction_multiplier = load_config()['low_freq_word_subtraction_multiplier']
+    nnp_addition_multiplier = load_config()['nnp_addition_multiplier']
     # get keywords, sentences using textrank algorithm
     for idx, (URI, title, content, root_domain, wordcount) in enumerate(data):
         # get stopwords from redis
         stopwords = get_stopwords(redis, root_domain)
-        tr = TextRank(tagger=tagger, window=5, content=content, stopwords=stopwords, singlewords=singlewords, title=title, coef=coef, title_word_addition_multiplier=title_word_addition_multiplier, minimum_low_freq=minimum_low_freq, low_freq_word_subtraction_multiplier=low_freq_word_subtraction_multiplier)
+        tr = TextRank(tagger=tagger, window=5, content=content, stopwords=stopwords, singlewords=singlewords, title=title, coef=coef, title_word_addition_multiplier=title_word_addition_multiplier, minimum_low_freq=minimum_low_freq, low_freq_word_subtraction_multiplier=low_freq_word_subtraction_multiplier, nnp_addition_multiplier=nnp_addition_multiplier)
 
         # build sentence graph
         tr.sentence_rank()
@@ -167,15 +186,18 @@ def sentence(mongo, redis, tagger, data, bulk_op):
         mongo.bulk_insert_sentences(bulk_op, URI, sentences, summarize_rate)
     end_time = time.time()
     logging.debug("sentence process end time : %f" %(end_time))
-    logging.debug("sentences total execute time : %f" %(end_time - start_time))
-    logging.debug("*******************************\n")
+    logging.debug("total execute time : %f" %(end_time - start_time))
 
 
 # 프로세스를 시작하는 함수
+# db: config/db.py 의 DB instance
+# mongo: config/mongo.py의 Mongo instance
+# redis: config/pyredis.py의 Redis instance
+# tagger: konlpy.tag 의 Mecab instance
+# data: main 함수에서 가져온 분석할 뉴스 기사 데이터
 def process_start(db, mongo, redis, tagger, data):
-    logging.debug("*******Process start********")
+    logging.debug("Process start")
     start_time = time.time()
-    
 
     try:
 
@@ -206,37 +228,33 @@ def process_start(db, mongo, redis, tagger, data):
             mongo.bulk_update_metadata(bulk_op, URI, wordcount)
             URIs.append(URI)
         st_time = time.time()
-        logging.debug("\n*********************************")
         logging.debug("mongo bulk_op start time : %f" %(st_time))
         mongo.execute_bulk_op(bulk_op)
         en_time = time.time()
         logging.debug("mongo bulk_op start time : %f" %(en_time))
-        logging.debug("mongo bulk operation total execution time : %f" %(en_time - st_time))
-        logging.debug("***********************************\n")
+        logging.debug("total execution time : %f" %(en_time - st_time))
 
         
         crawling_bulk_op = mongo.create_crawling_bulk_op()
         mongo.bulk_update_read_check(crawling_bulk_op, URIs)
         stt_time = time.time()
-        logging.debug("\n*********************************")
         logging.debug("mongo.execute_bulk_op time : %f" %(stt_time))
         mongo.execute_bulk_op(crawling_bulk_op)
         endd_time = time.time()
         logging.debug("mongo.execute_bulk_op end time : %f" %(endd_time))
-        logging.debug("mongo execution total time : %f" %(endd_time - stt_time))
-        logging.debug("*************************************\n")
-
-        
-        logging.debug("********** Process end ***********")
+        logging.debug("execution time : %f" %(endd_time - stt_time))
+        logging.debug("Process end")
         elapsed_time = time.time() - start_time
-        logging.debug("Process total elapsed time : %f" % (elapsed_time))
-        logging.debug("***************************\n")
+        logging.debug("Elapsed time : %f" % (elapsed_time))
     except Exception as e:
         logging.debug(traceback.format_exc())
         raise e
 
 
 # 분산 mod연산
+# batch:  config/config.json 에서 읽어온 "batch" key 의 value
+# state: 서버의 상태를 표시해 주는 multiprocessing Value
+# state: 1(error), 0(alive)
 def get_mod_from_server_list(batch, state):
     # get server list in config/config.json
     servers = sorted(load_config()['serverlist'], key=lambda x: x['order'])
@@ -270,6 +288,7 @@ def get_mod_from_server_list(batch, state):
 
 
 # state.value(0: alive, 1: error occur)
+# batch: config/config.json에서 읽어온 "batch" key value
 def main(state, batch):
     # initialize variables
 
@@ -302,7 +321,7 @@ def main(state, batch):
                 break
 
             # get MOD * 1000 data, and filter
-            data = list(map(lambda x: x[1:], list(filter(lambda x: int(x[0], 16) %  mod == remainder, mongo.get_recent_context_data(200 * mod)))))
+            data = list(map(lambda x: x[1:], list(filter(lambda x: int(x[0], 16) %  mod == remainder, mongo.get_recent_context_data(1000 * mod)))))
             logging.debug("data fetched - size: %d" % (len(data)))
 
             # wait for empty clause
@@ -315,7 +334,6 @@ def main(state, batch):
     except Exception as e:
         logging.debug(e)
         state.value = 1
-
 
 def signal_term_handler(signal, frame):
     global state

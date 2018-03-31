@@ -4,7 +4,6 @@
   "minimum_low_freq": 1,
   "low_freq_word_subtraction_multiplier": 0,
   "nnp_addition_multiplier": 2,
-  "nng_addition_multiplier": 2,
   "mysql": {
     "host": "localhost",
     "database": "enliple",

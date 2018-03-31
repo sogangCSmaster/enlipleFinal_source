@@ -19,6 +19,7 @@ class Mongo():
         return self.db
 
     # 분석 해야할 기사를 가져온다
+    # limit: int
     def get_recent_context_data(self, limit=200):
         data = self.db.crawling.aggregate([
             { "$match": {
@@ -45,6 +46,7 @@ class Mongo():
                     "$setOnInsert": { "regDate": utcnow },
                 }
             )
+
 
     def insert_ml_classifications(self, classifications):
 
