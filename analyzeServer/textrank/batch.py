@@ -32,156 +32,6 @@ logging.basicConfig(
 )
 
 
-
-
-
-# 분산 mod연산
-# batch:  config/config.json 에서 읽어온 "batch" key 의 value
-# state: 서버의 상태를 표시해 주는 multiprocessing Value
-# state: 1(error), 0(alive)
-def get_mod_from_server_list(batch, state):
-    # get server list in config/config.json
-    servers = sorted(load_config()['serverlist'], key=lambda x: x['order'])
-
-    # initialize variables
-    server_count = 0
-    my_server_idx = -1
-
-    # check servers are alive, and get order of current server
-    for idx, server in enumerate(servers):
-        try:
-            if batch['host'] == server['host'] and batch['port'] == server['port']:
-                my_server_idx = server_count
-            if check_socket(server['host'], server['port']):
-                server_count += 1
-        except Exception as e:
-            # socket is closed (server down or host is wrong)
-            logging.debug(e)
-            pass
-
-    if my_server_idx == -1:
-        logging.debug('current server does not exist in server list of `config/config.json`')
-        # set error flag
-        state.value = 1
-        return 0, -1
-
-    # 총 서버와 켜져있는 서버 확인
-    logging.debug('all server count %d' % (len(servers)))
-    logging.debug('running server_count %d' %(server_count))
-    return server_count, my_server_idx
-
-
-# state.value(0: alive, 1: error occur)
-# batch: config/config.json에서 읽어온 "batch" key value
-def main(state, batch):
-    # initialize variables
-
-    try:
-        # create database object
-        redis = Redis()
-        db = DB()
-        mongo = Mongo()
-        tagger = Mecab()
-
-        # start batch process
-        while (True):
-            db.ping()
-            redis.ping()
-
-            if load_config()['redis']['password']:
-                redis.sync_stopwords(db.get_stopwords())
-                db.commit()
-
-            # get server count, current server order of all server list
-            mod, remainder = get_mod_from_server_list(batch, state)
-            
-            # error!!! mod cannot be zero
-            if mod == 0:
-                logging.debug('MOD must be larger than 0. Please check your serverlist of `config/config.json`')
-                raise
-            
-            # check another process is killed
-            if state.value == 1:
-                break
-
-            # get MOD * 1000 data, and filter
-            data = list(map(lambda x: x[1:], list(filter(lambda x: int(x[0], 16) %  mod == remainder, mongo.get_recent_context_data(1000 * mod)))))
-            logging.debug("data fetched - size: %d" % (len(data)))
-
-            # wait for empty clause
-            if len(data) == 0:
-                time.sleep(1)
-            else:
-            # start batch process
-                process_start(db, mongo, redis, tagger, data)
-
-    except Exception as e:
-        logging.debug(e)
-        state.value = 1
-
-
-# 프로세스를 시작하는 함수
-# db: config/db.py 의 DB instance
-# mongo: config/mongo.py의 Mongo instance
-# redis: config/pyredis.py의 Redis instance
-# tagger: konlpy.tag 의 Mecab instance
-# data: main 함수에서 가져온 분석할 뉴스 기사 데이터
-def process_start(db, mongo, redis, tagger, data):
-    logging.debug("Process start")
-    start_time = time.time()
-
-    try:
-
-        # initialize variable
-        contents = []
-
-        # get numpy variable from array of news article
-        for (URI, title, content, root_domain, wordcount) in data:
-            contents.append(content)
-        x_test = get_x_test(contents, tagger)
-
-        # get category_id of each specific classification model
-        
-        classification_models = get_classification_models()
-        
-        
-        bulk_op = mongo.create_result_bulk_op()
-        # start category classification (deep learning)
-        ml_classifications(db, mongo, data, x_test, classification_models, bulk_op)
-
-        # keyword/sentence extraction
-        keyword(mongo, redis, tagger, data, bulk_op)
-        sentence(mongo, redis, tagger, data, bulk_op)
-        
-        # update read check
-        URIs = []
-        for (URI, title, content, root_domain, wordcount) in data:
-            mongo.bulk_update_metadata(bulk_op, URI, wordcount)
-            URIs.append(URI)
-        st_time = time.time()
-        logging.debug("mongo bulk_op start time : %f" %(st_time))
-        mongo.execute_bulk_op(bulk_op)
-        en_time = time.time()
-        logging.debug("mongo bulk_op start time : %f" %(en_time))
-        logging.debug("total execution time : %f" %(en_time - st_time))
-
-        
-        crawling_bulk_op = mongo.create_crawling_bulk_op()
-        mongo.bulk_update_read_check(crawling_bulk_op, URIs)
-        stt_time = time.time()
-        logging.debug("mongo.execute_bulk_op time : %f" %(stt_time))
-        mongo.execute_bulk_op(crawling_bulk_op)
-        endd_time = time.time()
-        logging.debug("mongo.execute_bulk_op end time : %f" %(endd_time))
-        logging.debug("execution time : %f" %(endd_time - stt_time))
-        logging.debug("Process end")
-        elapsed_time = time.time() - start_time
-        logging.debug("Elapsed time : %f" % (elapsed_time))
-    except Exception as e:
-        logging.debug(traceback.format_exc())
-        raise e
-
-
 # socket이 개방되었는지 체크
 # 개방되어있으면 True, 아니면 False
 # host: string of ip
@@ -339,7 +189,151 @@ def sentence(mongo, redis, tagger, data, bulk_op):
     logging.debug("total execute time : %f" %(end_time - start_time))
 
 
+# 프로세스를 시작하는 함수
+# db: config/db.py 의 DB instance
+# mongo: config/mongo.py의 Mongo instance
+# redis: config/pyredis.py의 Redis instance
+# tagger: konlpy.tag 의 Mecab instance
+# data: main 함수에서 가져온 분석할 뉴스 기사 데이터
+def process_start(db, mongo, redis, tagger, data):
+    logging.debug("Process start")
+    start_time = time.time()
 
+    try:
+
+        # initialize variable
+        contents = []
+
+        # get numpy variable from array of news article
+        for (URI, title, content, root_domain, wordcount) in data:
+            contents.append(content)
+        x_test = get_x_test(contents, tagger)
+
+        # get category_id of each specific classification model
+        
+        classification_models = get_classification_models()
+        
+        
+        bulk_op = mongo.create_result_bulk_op()
+        # start category classification (deep learning)
+        ml_classifications(db, mongo, data, x_test, classification_models, bulk_op)
+
+        # keyword/sentence extraction
+        keyword(mongo, redis, tagger, data, bulk_op)
+        sentence(mongo, redis, tagger, data, bulk_op)
+        
+        # update read check
+        URIs = []
+        for (URI, title, content, root_domain, wordcount) in data:
+            mongo.bulk_update_metadata(bulk_op, URI, wordcount)
+            URIs.append(URI)
+        st_time = time.time()
+        logging.debug("mongo bulk_op start time : %f" %(st_time))
+        mongo.execute_bulk_op(bulk_op)
+        en_time = time.time()
+        logging.debug("mongo bulk_op start time : %f" %(en_time))
+        logging.debug("total execution time : %f" %(en_time - st_time))
+
+        
+        crawling_bulk_op = mongo.create_crawling_bulk_op()
+        mongo.bulk_update_read_check(crawling_bulk_op, URIs)
+        stt_time = time.time()
+        logging.debug("mongo.execute_bulk_op time : %f" %(stt_time))
+        mongo.execute_bulk_op(crawling_bulk_op)
+        endd_time = time.time()
+        logging.debug("mongo.execute_bulk_op end time : %f" %(endd_time))
+        logging.debug("execution time : %f" %(endd_time - stt_time))
+        logging.debug("Process end")
+        elapsed_time = time.time() - start_time
+        logging.debug("Elapsed time : %f" % (elapsed_time))
+    except Exception as e:
+        logging.debug(traceback.format_exc())
+        raise e
+
+
+# 분산 mod연산
+# batch:  config/config.json 에서 읽어온 "batch" key 의 value
+# state: 서버의 상태를 표시해 주는 multiprocessing Value
+# state: 1(error), 0(alive)
+def get_mod_from_server_list(batch, state):
+    # get server list in config/config.json
+    servers = sorted(load_config()['serverlist'], key=lambda x: x['order'])
+
+    # initialize variables
+    server_count = 0
+    my_server_idx = -1
+
+    # check servers are alive, and get order of current server
+    for idx, server in enumerate(servers):
+        try:
+            if batch['host'] == server['host'] and batch['port'] == server['port']:
+                my_server_idx = server_count
+            if check_socket(server['host'], server['port']):
+                server_count += 1
+        except Exception as e:
+            # socket is closed (server down or host is wrong)
+            logging.debug(e)
+            pass
+
+    if my_server_idx == -1:
+        logging.debug('current server does not exist in server list of `config/config.json`')
+        # set error flag
+        state.value = 1
+        return 0, -1
+
+    # 총 서버와 켜져있는 서버 확인
+    logging.debug('all server count %d' % (len(servers)))
+    logging.debug('running server_count %d' %(server_count))
+    return server_count, my_server_idx
+
+
+# state.value(0: alive, 1: error occur)
+# batch: config/config.json에서 읽어온 "batch" key value
+def main(state, batch):
+    # initialize variables
+
+    try:
+        # create database object
+        redis = Redis()
+        db = DB()
+        mongo = Mongo()
+        tagger = Mecab()
+
+        # start batch process
+        while (True):
+            db.ping()
+            redis.ping()
+
+            if load_config()['redis']['password']:
+                redis.sync_stopwords(db.get_stopwords())
+                db.commit()
+
+            # get server count, current server order of all server list
+            mod, remainder = get_mod_from_server_list(batch, state)
+            
+            # error!!! mod cannot be zero
+            if mod == 0:
+                logging.debug('MOD must be larger than 0. Please check your serverlist of `config/config.json`')
+                raise
+            
+            # check another process is killed
+            if state.value == 1:
+                break
+
+            # get MOD * 1000 data, and filter
+            data = list(map(lambda x: x[1:], list(filter(lambda x: int(x[0], 16) %  mod == remainder, mongo.get_recent_context_data(1000 * mod)))))
+            logging.debug("data fetched - size: %d" % (len(data)))
+
+            # wait for empty clause
+            if len(data) == 0:
+                time.sleep(1)
+            else:
+            # start batch process
+                process_start(db, mongo, redis, tagger, data)
+
+    except Exception as e:
+        logging.debug(e)
+        state.value = 1
 
 def signal_term_handler(signal, frame):
     global state

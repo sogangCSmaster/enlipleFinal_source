@@ -17,6 +17,10 @@ dir_path = os.path.dirname(os.path.realpath(__file__))
 
 logging.getLogger().setLevel(logging.INFO)
 
+
+# 전처리 함수
+# string을 입력받아 특수문자 및 "홍길동 기자" 등 최대한 전처리를 한다.
+# return : string
 def preprocess(text):
     preprocess.stopwordList = getattr(preprocess, 'stopwordList', None)
 
@@ -79,6 +83,9 @@ def preprocess(text):
 
     return text
 
+
+# preprocess 함수를 이용하여 들어온 데이터를 전처리 및 형태소 분석기로 품사 태깅을 한다.
+# return : string
 def clean_str(s, tagger):
     """Clean sentence"""
     global counter_konlpy
@@ -86,38 +93,27 @@ def clean_str(s, tagger):
     #global stopwords
     s = re.sub('[0-9]', '', s)
     s = preprocess(s)
-
-    #print(' '.join(kkma.nouns(s)))
     result = []
     result = tagger.nouns(s)
-    #temp = []
-    #temp = mecab.nouns(s)
-    #for noun in temp:
-        #flag = 0;
-        #for sword in stopwords:
-            #if noun == sword:
-                #flag = 1;
-                #break;
-        #if flag == 0:
-            #result.append(noun)     
 
     if len(result) > 300:
         result = result[0:300]
     counter_konlpy += 1
     sys.stdout.write("\rParsed: %d / %d" %(counter_konlpy, total_dataset))
-    #sys.stdout.flush()
     return ' '.join(result)
 
+
+
+# 데이터를 분석할 수 있는 형식에 맞추어 반환한다.
+# pandas 모듈의 dataframe 형태로 형식을 맞추어서 반환한다.
+# return : pandas dataframe 형태
 def get_x_test(contents, tagger=Mecab()):
     """Step 1: load data for prediction"""
     columns = ['section', 'class', 'subclass', 'abstract']
     selected = ['section', 'abstract']
-    #test_list = test_list[0:10000]
     data = []
-    #print("Listing all datas in testset.")
     start = time.time()
     for content in contents:
-        #print(content)
         data.append(['', '', '', content])
     df = pd.DataFrame(data, columns=columns)
     global counter_konlpy
@@ -125,16 +121,15 @@ def get_x_test(contents, tagger=Mecab()):
     start = time.time()
     counter_konlpy = 0
     total_dataset = len(contents)
-    #x_raw = [example['abstract'] for example in test_examples]
-    #x_test = [data_helper.clean_str(x) for x in x_raw]
     x_test = df[selected[1]].apply(lambda x: clean_str(x, tagger)).tolist()
-    #print("\nExecution time = {0:.5f}".format(time.time() - start))
-
     logging.info('The number of x_test: {}'.format(len(x_test)))
 
 
     return x_test
 
+
+# trained_model 폴더 안에 있는 모든 학습된 모델의 위치를 부른다.
+# return : list
 def get_classification_models():
     checkpoint_dir =  dir_path + '/trained_model/'
     models = []
@@ -146,6 +141,9 @@ def get_classification_models():
 
     return models
 
+
+
+# trained_model/trained_model_숫자/category.json 에 저장되어 잇는 모델 이름을 가져온다.
 def get_category_name(model_name):
     get_category_name.model_names = getattr(get_category_name, 'model_names', {})
 
@@ -163,6 +161,11 @@ def get_category_name(model_name):
 
     return get_category_name.model_names[model_name]
 
+
+
+# 분류되지 않은 데이터들에 대하여 학습된 모델로 분류를 진행한다.
+# x_test는 분석을 위하여 pandas의 dataframe에 맞추어 들어온 데이터이며, model_name은 trained_model 폴더 안에 있는 각각의 "trained_model_모델명" 을 뜻한다.
+# return : list
 def predict_unseen_data(x_test, model_name):
     """Step 0: load trained model and parameters"""
     predict_unseen_data.model_names = getattr(predict_unseen_data, 'model_names', {})
