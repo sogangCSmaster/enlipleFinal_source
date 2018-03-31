@@ -170,3 +170,10 @@ nltk.download('punkt')
 - pm2 start batch
 - pm2 kill (모든 프로세스 끄기)
 - pm2 start batch.config.js (최초 시작 또는 pm2 kill 이후 시작)
+
+
+## mongoDB batch limit
+- textrank/config/mongo.py
+```
+ def get_recent_context_data(self, limit=200)
+```
