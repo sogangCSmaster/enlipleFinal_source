@@ -148,6 +148,19 @@ sudo yum install -y nodejs
 sudo npm install -g pm2
 ```
 
+## 영어 형태소 분석기 설치
+1. nltk 모듈 설치
+```
+pip3.5 install nltk
+```
+
+2. python3.5 shell에서 다음과 같은 명령이 입력
+```
+import nltk
+nltk.download('averaged_perception_tagger')
+nltk.download('punkt')
+```
+
 
 # textrank Daemon
 
