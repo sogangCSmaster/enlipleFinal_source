@@ -177,3 +177,7 @@ nltk.download('punkt')
 ```
  def get_recent_context_data(self, limit=200)
 ```
+
+## textrank unigram bigram splited
+- textrank.py (바이그램 까지 추출)
+- textrank_unigram.py (unigram만 추출)
